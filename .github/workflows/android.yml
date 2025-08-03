@@ -37,26 +37,66 @@ jobs:
         echo "=== Libraries ==="
         ls -la libs/ 2>/dev/null || echo "No libs directory found"
         
-    - name: Set up JDK 8 (Legacy compatibility)
+    - name: Set up JDK 17 (for SDK tools)
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        
+    - name: Set up JDK 8 (for legacy compilation)
       uses: actions/setup-java@v4
       with:
         java-version: '8'
         distribution: 'temurin'
         
-    - name: Set up Android SDK
-      uses: android-actions/setup-android@v3
-      
-    - name: Install required Android SDK components
+    - name: Setup Android SDK manually
       run: |
-        echo "Installing legacy Android SDK components..."
-        # Install older build tools and platforms for legacy projects
-        sdkmanager --install "build-tools;30.0.3" "platforms;android-30" "platforms;android-28" "platforms;android-23" "platforms;android-21"
+        echo "Setting up Android SDK manually..."
+        
+        # Create Android SDK directory
+        export ANDROID_HOME=/usr/local/lib/android/sdk
+        export ANDROID_SDK_ROOT=$ANDROID_HOME
+        mkdir -p $ANDROID_HOME
+        
+        # Download and install command line tools
+        cd /tmp
+        wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+        unzip -q commandlinetools-linux-9477386_latest.zip
+        mkdir -p $ANDROID_HOME/cmdline-tools
+        mv cmdline-tools $ANDROID_HOME/cmdline-tools/latest
+        
+        # Add to PATH
+        export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/30.0.3
+        
+        # Accept licenses
+        yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+        
+        # Install required components
+        $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "build-tools;30.0.3" "build-tools;28.0.3" "platforms;android-28" "platforms;android-23" "platforms;android-21"
+        
+        # Verify installation
+        echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+        echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $GITHUB_ENV
+        echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
+        echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
+        echo "$ANDROID_HOME/build-tools/30.0.3" >> $GITHUB_PATH
+        
+        echo "Android SDK installed at: $ANDROID_HOME"
+        ls -la $ANDROID_HOME/
         
     - name: Create local.properties
       run: |
         echo "sdk.dir=$ANDROID_HOME" > local.properties
         echo "Created local.properties:"
         cat local.properties
+        
+    - name: Set up legacy Java environment
+      run: |
+        # Set JAVA_HOME to JDK 8 for compilation
+        export JAVA8_HOME=$(echo $JAVA_HOME_8_X64)
+        echo "JAVA8_HOME=$JAVA8_HOME" >> $GITHUB_ENV
+        echo "Using Java 8 for compilation: $JAVA8_HOME"
+        $JAVA8_HOME/bin/java -version
         
     - name: Update project for modern build
       run: |
@@ -96,10 +136,13 @@ jobs:
     - name: Generate build.xml with android update project
       run: |
         echo "=== Generating build.xml ==="
-        # Use android update project command to generate build.xml
-        $ANDROID_HOME/tools/bin/android update project --path . --target android-28 || \
-        $ANDROID_HOME/cmdline-tools/latest/bin/android update project --path . --target android-28 || \
-        echo "Could not run android update project command"
+        
+        # Try to create build.xml with legacy tools
+        if [ -f "$ANDROID_HOME/tools/bin/android" ]; then
+          $ANDROID_HOME/tools/bin/android update project --path . --target android-28 || echo "android update project failed"
+        else
+          echo "Legacy android command not available"
+        fi
         
         echo "Checking if build.xml was created:"
         ls -la build.xml 2>/dev/null || echo "build.xml not found"
@@ -111,11 +154,11 @@ jobs:
           cat > build.xml << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <project name="ApkDownloader" default="help">
-            <property file="local.properties" />
-            <property file="ant.properties" />
-            <property environment="env" />
+          <property file="local.properties" />
+          <property file="ant.properties" />
+          <property environment="env" />
           <condition property="sdk.dir" value="${env.ANDROID_HOME}">
-              <isset property="env.ANDROID_HOME" />
+            <isset property="env.ANDROID_HOME" />
           </condition>
           <loadproperties srcFile="project.properties" />
           <fail
@@ -159,12 +202,17 @@ jobs:
           $ANDROID_HOME/build-tools/30.0.3/aapt package -f -m -J gen -S res -M AndroidManifest.xml -I $ANDROID_HOME/platforms/android-28/android.jar || echo "R.java generation failed"
         fi
         
-        # Find and compile Java files
+        # Find and compile Java files with JDK 8
         if [ -d src ] && [ -d gen ]; then
-          echo "Compiling Java sources..."
+          echo "Compiling Java sources with JDK 8..."
           find src gen -name "*.java" > sources.txt 2>/dev/null
           if [ -s sources.txt ]; then
-            javac -d bin/classes -cp $ANDROID_HOME/platforms/android-28/android.jar:libs/* @sources.txt || echo "Java compilation failed"
+            # Use JDK 8 for compilation
+            CLASSPATH="$ANDROID_HOME/platforms/android-28/android.jar"
+            if [ -d libs ]; then
+              CLASSPATH="$CLASSPATH:$(find libs -name "*.jar" | tr '\n' ':')"
+            fi
+            $JAVA8_HOME/bin/javac -d bin/classes -cp "$CLASSPATH" @sources.txt || echo "Java compilation failed"
           fi
         fi
         
