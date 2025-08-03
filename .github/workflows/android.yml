@@ -78,20 +78,20 @@ jobs:
         
         # Create basic theme compatibility
         cat > res/values/themes_actionbar.xml << 'EOF'
-        <?xml version="1.0" encoding="utf-8"?>
-        <resources>
-            <!-- ActionBarSherlock Light Theme with Dark Action Bar -->
-            <style name="Theme.Sherlock.Light.DarkActionBar" parent="@android:style/Theme.Holo.Light.DarkActionBar">
-                <!-- Customize your theme here -->
-            </style>
-            
-            <!-- Fallback themes -->
-            <style name="Theme.Sherlock" parent="@android:style/Theme.Holo">
-            </style>
-            
-            <style name="Theme.Sherlock.Light" parent="@android:style/Theme.Holo.Light">
-            </style>
-        </resources>
+            <?xml version="1.0" encoding="utf-8"?>
+            <resources>
+                <!-- ActionBarSherlock Light Theme with Dark Action Bar -->
+                <style name="Theme.Sherlock.Light.DarkActionBar" parent="@android:style/Theme.Holo.Light.DarkActionBar">
+                    <!-- Customize your theme here -->
+                </style>
+                
+                <!-- Fallback themes -->
+                <style name="Theme.Sherlock" parent="@android:style/Theme.Holo">
+                </style>
+                
+                <style name="Theme.Sherlock.Light" parent="@android:style/Theme.Holo.Light">
+                </style>
+            </resources>
         EOF
 
         echo "ActionBarSherlock theme compatibility added"
@@ -170,23 +170,23 @@ jobs:
             # Create minimal R.java manually
             mkdir -p build/gen/com/jackpf/apkdownloader
             cat > build/gen/com/jackpf/apkdownloader/R.java << 'EOF'
-            package com.jackpf.apkdownloader;
-            
-            public final class R {
-                public static final class drawable {
-                    public static final int ic_launcher = 0x7f020000;
+                package com.jackpf.apkdownloader;
+                
+                public final class R {
+                    public static final class drawable {
+                        public static final int ic_launcher = 0x7f020000;
+                    }
+                    public static final class layout {
+                        public static final int activity_main = 0x7f030000;
+                    }
+                    public static final class string {
+                        public static final int app_name = 0x7f040000;
+                    }
+                    public static final class style {
+                        public static final int AppTheme = 0x7f050000;
+                    }
                 }
-                public static final class layout {
-                    public static final int activity_main = 0x7f030000;
-                }
-                public static final class string {
-                    public static final int app_name = 0x7f040000;
-                }
-                public static final class style {
-                    public static final int AppTheme = 0x7f050000;
-                }
-            }
-            EOF
+                EOF
             echo "Minimal R.java created manually"
           }
         }
