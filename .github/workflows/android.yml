@@ -65,26 +65,26 @@ jobs:
         # Create ActionBarSherlock theme resources
         mkdir -p res/values
         cat > res/values/themes_sherlock.xml << 'THEME_EOF'
-            <?xml version="1.0" encoding="utf-8"?>
-            <resources>
-                <!-- ActionBarSherlock themes -->
-                <style name="Theme.Sherlock.Light.DarkActionBar" parent="@android:style/Theme.Holo.Light.DarkActionBar">
-                    <item name="android:actionBarStyle">@style/Widget.Sherlock.ActionBar</item>
-                </style>
-                
-                <style name="Theme.Sherlock" parent="@android:style/Theme.Holo">
-                    <item name="android:actionBarStyle">@style/Widget.Sherlock.ActionBar</item>
-                </style>
-                
-                <style name="Theme.Sherlock.Light" parent="@android:style/Theme.Holo.Light">
-                    <item name="android:actionBarStyle">@style/Widget.Sherlock.ActionBar</item>
-                </style>
-                
-                <!-- ActionBar styles -->
-                <style name="Widget.Sherlock.ActionBar" parent="@android:style/Widget.Holo.ActionBar">
-                </style>
-            </resources>
-            THEME_EOF
+        <?xml version="1.0" encoding="utf-8"?>
+        <resources>
+            <!-- ActionBarSherlock themes -->
+            <style name="Theme.Sherlock.Light.DarkActionBar" parent="@android:style/Theme.Holo.Light.DarkActionBar">
+                <item name="android:actionBarStyle">@style/Widget.Sherlock.ActionBar</item>
+            </style>
+            
+            <style name="Theme.Sherlock" parent="@android:style/Theme.Holo">
+                <item name="android:actionBarStyle">@style/Widget.Sherlock.ActionBar</item>
+            </style>
+            
+            <style name="Theme.Sherlock.Light" parent="@android:style/Theme.Holo.Light">
+                <item name="android:actionBarStyle">@style/Widget.Sherlock.ActionBar</item>
+            </style>
+            
+            <!-- ActionBar styles -->
+            <style name="Widget.Sherlock.ActionBar" parent="@android:style/Widget.Holo.ActionBar">
+            </style>
+        </resources>
+        THEME_EOF
 
         echo "ActionBarSherlock theme resources created"
         
