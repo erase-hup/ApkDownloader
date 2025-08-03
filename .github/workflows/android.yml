@@ -77,17 +77,17 @@ jobs:
           
           # Add other necessary properties
           cat >> project.properties.new << EOF
-android.library=false
-proguard.config=proguard-project.txt
-EOF
+          android.library=false
+          proguard.config=proguard-project.txt
+          EOF
           mv project.properties.new project.properties
         else
           # Create basic project.properties
           cat > project.properties << EOF
-target=android-28
-android.library=false
-proguard.config=proguard-project.txt
-EOF
+          target=android-28
+          android.library=false
+          proguard.config=proguard-project.txt
+          EOF
         fi
         
         echo "Final project.properties:"
@@ -109,23 +109,23 @@ EOF
         if [ ! -f build.xml ]; then
           echo "Creating build.xml manually..."
           cat > build.xml << 'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<project name="ApkDownloader" default="help">
-    <property file="local.properties" />
-    <property file="ant.properties" />
-    <property environment="env" />
-    <condition property="sdk.dir" value="${env.ANDROID_HOME}">
-        <isset property="env.ANDROID_HOME" />
-    </condition>
-    <loadproperties srcFile="project.properties" />
-    <fail
+          <?xml version="1.0" encoding="UTF-8"?>
+          <project name="ApkDownloader" default="help">
+            <property file="local.properties" />
+            <property file="ant.properties" />
+            <property environment="env" />
+          <condition property="sdk.dir" value="${env.ANDROID_HOME}">
+              <isset property="env.ANDROID_HOME" />
+          </condition>
+          <loadproperties srcFile="project.properties" />
+          <fail
             message="sdk.dir is missing. Make sure to generate local.properties using 'android update project' or to inject it through the ANDROID_HOME environment variable."
             unless="sdk.dir"
-    />
-    <import file="custom_rules.xml" optional="true" />
-    <import file="${sdk.dir}/tools/ant/build.xml" />
-</project>
-EOF
+          />
+          <import file="custom_rules.xml" optional="true" />
+          <import file="${sdk.dir}/tools/ant/build.xml" />
+          </project>
+          EOF
           echo "Created basic build.xml"
         fi
         
