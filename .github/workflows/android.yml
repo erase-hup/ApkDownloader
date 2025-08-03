@@ -71,37 +71,37 @@ jobs:
         
         # Create basic build.gradle
         cat > build.gradle << 'EOF'
-plugins {
-    id 'com.android.application' version '8.1.0'
-}
+        plugins {
+          id 'com.android.application' version '8.1.0'
+        }
 
-android {
-    namespace 'com.jackpf.apkdownloader'
-    compileSdk 28
+        android {
+          namespace 'com.jackpf.apkdownloader'
+          compileSdk 28
     
-    defaultConfig {
+        defaultConfig {
         applicationId "com.jackpf.apkdownloader"
         minSdk 14
         targetSdk 28
         versionCode 1
         versionName "1.0"
-    }
+        }
     
-    buildTypes {
+        buildTypes {
         debug {
             debuggable true
         }
         release {
             minifyEnabled false
         }
-    }
+        }
     
-    compileOptions {
+        compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
-    }
+        }
     
-    sourceSets {
+        sourceSets {
         main {
             manifest.srcFile 'AndroidManifest.xml'
             java.srcDirs = ['src']
@@ -109,22 +109,22 @@ android {
             res.srcDirs = ['res']
             assets.srcDirs = ['assets']
         }
-    }
-}
+        }
+        }
 
-dependencies {
-    implementation fileTree(dir: 'libs', include: ['*.jar'])
-}
-EOF
+        dependencies {
+          implementation fileTree(dir: 'libs', include: ['*.jar'])
+        }
+        EOF
 
         # Create gradle wrapper
         cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
-distributionBase=GRADLE_USER_HOME
-distributionPath=wrapper/dists
-distributionUrl=https\://services.gradle.org/distributions/gradle-8.0-bin.zip
-zipStoreBase=GRADLE_USER_HOME
-zipStorePath=wrapper/dists
-EOF
+        distributionBase=GRADLE_USER_HOME
+        distributionPath=wrapper/dists
+        distributionUrl=https\://services.gradle.org/distributions/gradle-8.0-bin.zip
+        zipStoreBase=GRADLE_USER_HOME
+        zipStorePath=wrapper/dists
+        EOF
 
         mkdir -p gradle/wrapper
         echo "Gradle build files created"
