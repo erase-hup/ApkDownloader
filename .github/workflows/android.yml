@@ -1,129 +1,241 @@
-name: Debug Build Analysis
+name: Legacy Android Build
 
 on:
-  workflow_dispatch:  # Manuel tetikleme için
   push:
-    branches: [ main, master ]
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  workflow_dispatch:
 
 jobs:
-  debug-build:
-    name: Debug Build Analysis
+  build:
+    name: Build Legacy Android Project
     runs-on: ubuntu-latest
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       
-    - name: Detailed project analysis
+    - name: Project Analysis
       run: |
-        echo "=== Complete Project Structure ==="
-        find . -type f -name "*.gradle*" -o -name "*.xml" -o -name "*.properties" | head -20
+        echo "=== Legacy Android Project Analysis ==="
+        echo "AndroidManifest.xml exists: $([ -f AndroidManifest.xml ] && echo "YES" || echo "NO")"
+        echo "project.properties exists: $([ -f project.properties ] && echo "YES" || echo "NO")"
         echo ""
-        echo "=== Android specific files ==="
-        find . -name "AndroidManifest.xml" -o -name "strings.xml" -o -name "activity_*.xml"
+        echo "=== Project Properties ==="
+        cat project.properties 2>/dev/null || echo "No project.properties found"
         echo ""
-        echo "=== Source directories ==="
-        find . -type d -name "src" -o -name "java" -o -name "kotlin"
+        echo "=== Android Manifest Info ==="
+        grep -E "(package=|android:versionCode=|android:versionName=)" AndroidManifest.xml 2>/dev/null || echo "Cannot read AndroidManifest.xml"
         echo ""
-        echo "=== Resource directories ==="
-        find . -type d -name "res" -o -name "assets" -o -name "drawable*"
+        echo "=== Source Structure ==="
+        find src -name "*.java" 2>/dev/null | head -10 || echo "No src directory found"
+        echo ""
+        echo "=== Resources ==="
+        ls -la res/ 2>/dev/null || echo "No res directory found"
+        echo ""
+        echo "=== Libraries ==="
+        ls -la libs/ 2>/dev/null || echo "No libs directory found"
         
-    - name: Set up JDK 17
+    - name: Set up JDK 8 (Legacy compatibility)
       uses: actions/setup-java@v4
       with:
-        java-version: '17'
+        java-version: '8'
         distribution: 'temurin'
-    
+        
     - name: Set up Android SDK
       uses: android-actions/setup-android@v3
       
-    - name: Cache Gradle
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.gradle/caches
-          ~/.gradle/wrapper
-        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-        
-    - name: Try all build methods
+    - name: Install required Android SDK components
       run: |
-        echo "=== Attempting all possible build methods ==="
+        echo "Installing legacy Android SDK components..."
+        # Install older build tools and platforms for legacy projects
+        sdkmanager --install "build-tools;30.0.3" "platforms;android-30" "platforms;android-28" "platforms;android-23" "platforms;android-21"
         
-        # Method 1: Gradle Wrapper
-        if [ -f "./gradlew" ]; then
-          echo "Trying ./gradlew"
-          chmod +x gradlew
-          ./gradlew clean assembleDebug --info --stacktrace || echo "gradlew failed"
+    - name: Create local.properties
+      run: |
+        echo "sdk.dir=$ANDROID_HOME" > local.properties
+        echo "Created local.properties:"
+        cat local.properties
+        
+    - name: Update project for modern build
+      run: |
+        echo "=== Updating project structure ==="
+        
+        # Read target from project.properties
+        if [ -f project.properties ]; then
+          TARGET=$(grep "target=" project.properties | cut -d'=' -f2)
+          echo "Original target: $TARGET"
+          
+          # Update to a more modern but compatible target
+          if [[ "$TARGET" =~ android-[0-9]+ ]]; then
+            echo "target=android-28" > project.properties.new
+            echo "Updated target to android-28"
+          else
+            cp project.properties project.properties.new
+          fi
+          
+          # Add other necessary properties
+          cat >> project.properties.new << EOF
+android.library=false
+proguard.config=proguard-project.txt
+EOF
+          mv project.properties.new project.properties
+        else
+          # Create basic project.properties
+          cat > project.properties << EOF
+target=android-28
+android.library=false
+proguard.config=proguard-project.txt
+EOF
         fi
         
-        # Method 2: Gradle Wrapper in subdirectory
-        if [ -f "./android/gradlew" ]; then
-          echo "Trying android/gradlew"
-          chmod +x android/gradlew
-          cd android && ./gradlew clean assembleDebug --info --stacktrace || echo "android/gradlew failed"
-          cd ..
+        echo "Final project.properties:"
+        cat project.properties
+        
+    - name: Generate build.xml with android update project
+      run: |
+        echo "=== Generating build.xml ==="
+        # Use android update project command to generate build.xml
+        $ANDROID_HOME/tools/bin/android update project --path . --target android-28 || \
+        $ANDROID_HOME/cmdline-tools/latest/bin/android update project --path . --target android-28 || \
+        echo "Could not run android update project command"
+        
+        echo "Checking if build.xml was created:"
+        ls -la build.xml 2>/dev/null || echo "build.xml not found"
+        
+    - name: Create build.xml manually if needed
+      run: |
+        if [ ! -f build.xml ]; then
+          echo "Creating build.xml manually..."
+          cat > build.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="ApkDownloader" default="help">
+    <property file="local.properties" />
+    <property file="ant.properties" />
+    <property environment="env" />
+    <condition property="sdk.dir" value="${env.ANDROID_HOME}">
+        <isset property="env.ANDROID_HOME" />
+    </condition>
+    <loadproperties srcFile="project.properties" />
+    <fail
+            message="sdk.dir is missing. Make sure to generate local.properties using 'android update project' or to inject it through the ANDROID_HOME environment variable."
+            unless="sdk.dir"
+    />
+    <import file="custom_rules.xml" optional="true" />
+    <import file="${sdk.dir}/tools/ant/build.xml" />
+</project>
+EOF
+          echo "Created basic build.xml"
         fi
         
-        # Method 3: System Gradle
-        if [ -f "build.gradle" ] && command -v gradle &> /dev/null; then
-          echo "Trying system gradle"
-          gradle clean assembleDebug --info --stacktrace || echo "system gradle failed"
+    - name: Build with Ant
+      run: |
+        echo "=== Building with Ant ==="
+        
+        # Try to build debug APK
+        if [ -f build.xml ]; then
+          echo "Building debug APK..."
+          ant clean debug -verbose || echo "Ant build failed, but continuing..."
+        else
+          echo "No build.xml found, cannot build with Ant"
         fi
         
-        # Method 4: Ant
-        if [ -f "build.xml" ]; then
-          echo "Trying Ant"
-          ant clean debug || echo "ant failed"
-        fi
-        
-    - name: Comprehensive APK search
+    - name: Alternative build method - Manual compilation
       if: always()
       run: |
-        echo "=== Comprehensive APK search ==="
-        echo "Current directory: $(pwd)"
-        echo ""
-        echo "All .apk files in the system:"
+        echo "=== Alternative build method ==="
+        
+        # Create necessary directories
+        mkdir -p bin/classes
+        mkdir -p gen
+        
+        # Try to compile manually
+        echo "Attempting manual compilation..."
+        
+        # Generate R.java
+        if [ -f "$ANDROID_HOME/build-tools/30.0.3/aapt" ]; then
+          echo "Generating R.java..."
+          $ANDROID_HOME/build-tools/30.0.3/aapt package -f -m -J gen -S res -M AndroidManifest.xml -I $ANDROID_HOME/platforms/android-28/android.jar || echo "R.java generation failed"
+        fi
+        
+        # Find and compile Java files
+        if [ -d src ] && [ -d gen ]; then
+          echo "Compiling Java sources..."
+          find src gen -name "*.java" > sources.txt 2>/dev/null
+          if [ -s sources.txt ]; then
+            javac -d bin/classes -cp $ANDROID_HOME/platforms/android-28/android.jar:libs/* @sources.txt || echo "Java compilation failed"
+          fi
+        fi
+        
+        # Create DEX file
+        if [ -d bin/classes ] && [ "$(ls -A bin/classes 2>/dev/null)" ]; then
+          echo "Creating DEX file..."
+          $ANDROID_HOME/build-tools/30.0.3/dx --dex --output=bin/classes.dex bin/classes || echo "DEX creation failed"
+        fi
+        
+        # Package APK
+        if [ -f bin/classes.dex ]; then
+          echo "Packaging APK..."
+          $ANDROID_HOME/build-tools/30.0.3/aapt package -f -M AndroidManifest.xml -S res -I $ANDROID_HOME/platforms/android-28/android.jar -F bin/app-unsigned.apk bin || echo "APK packaging failed"
+          
+          # Add DEX to APK
+          if [ -f bin/app-unsigned.apk ]; then
+            $ANDROID_HOME/build-tools/30.0.3/aapt add bin/app-unsigned.apk bin/classes.dex || echo "Adding DEX to APK failed"
+          fi
+        fi
+        
+    - name: Find all APK files
+      if: always()
+      run: |
+        echo "=== Searching for APK files ==="
         find . -name "*.apk" -type f 2>/dev/null | while read apk; do
           echo "Found APK: $apk"
           echo "  Size: $(ls -lh "$apk" | awk '{print $5}')"
-          echo "  Full path: $(readlink -f "$apk")"
-          echo "  Directory: $(dirname "$apk")"
-        done
-        echo ""
-        echo "Build output directories:"
-        find . -type d \( -name "build" -o -name "bin" -o -name "out" -o -name "target" -o -name "outputs" \) 2>/dev/null | while read dir; do
-          echo "Build dir: $dir"
-          ls -la "$dir" 2>/dev/null | head -10
-          echo "---"
-        done
+          echo "  Location: $(readlink -f "$apk")"
+        done || echo "No APK files found"
         
-    - name: Create artifact directory and copy APKs
+        echo ""
+        echo "=== Build directories content ==="
+        [ -d bin ] && echo "bin/ contents:" && ls -la bin/
+        [ -d build ] && echo "build/ contents:" && ls -la build/
+        
+    - name: Copy APKs to artifacts directory
       if: always()
       run: |
-        mkdir -p artifacts/apks
+        mkdir -p artifacts
         
-        # Find and copy all APK files
+        # Copy any APK files found
         find . -name "*.apk" -type f 2>/dev/null | while read apk; do
           filename=$(basename "$apk")
-          cp "$apk" "artifacts/apks/$filename" && echo "Copied: $filename"
+          cp "$apk" "artifacts/${filename}" && echo "Copied: $filename to artifacts/"
         done
         
-        echo "Artifacts directory contents:"
-        ls -la artifacts/apks/ 2>/dev/null || echo "No APKs copied"
+        echo "Artifacts directory:"
+        ls -la artifacts/ 2>/dev/null || echo "No artifacts created"
         
-    - name: Upload all found APKs
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: found-apks
-        path: artifacts/apks/
-        retention-days: 30
-        
-    - name: Upload raw search results
+    - name: Upload APK files
       uses: actions/upload-artifact@v4
       if: always()
       continue-on-error: true
       with:
-        name: any-apks-anywhere
-        path: "**/*.apk"
+        name: legacy-android-apks
+        path: |
+          artifacts/*.apk
+          bin/*.apk
+          build/outputs/apk/**/*.apk
+        retention-days: 30
+        
+    - name: Upload build logs and debug info
+      uses: actions/upload-artifact@v4
+      if: always()
+      continue-on-error: true
+      with:
+        name: build-debug-info
+        path: |
+          build.xml
+          project.properties
+          local.properties
+          bin/
+          gen/
         retention-days: 7
