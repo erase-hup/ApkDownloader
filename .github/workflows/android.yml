@@ -98,22 +98,49 @@ jobs:
           exit 1
         fi
         
-    - name: Find and upload APK files
+    - name: Find APK files and show build results
+      if: always()
+      run: |
+        echo "=== Searching for APK files ==="
+        APK_FILES=$(find . -name "*.apk" -type f 2>/dev/null)
+        if [ -n "$APK_FILES" ]; then
+          echo "Found APK files:"
+          echo "$APK_FILES"
+          echo ""
+          echo "APK file details:"
+          find . -name "*.apk" -type f -exec ls -lh {} \; 2>/dev/null
+        else
+          echo "No APK files found"
+        fi
+        echo ""
+        echo "=== All build output directories ==="
+        find . -type d \( -name "outputs" -o -name "bin" -o -name "build" -o -name "target" \) 2>/dev/null || echo "No common build directories found"
+        echo ""
+        echo "=== Directory structure (max depth 3) ==="
+        find . -maxdepth 3 -type d | head -20
+        
+    - name: Upload APK files (if found)
       uses: actions/upload-artifact@v4
       if: always()
+      continue-on-error: true
       with:
         name: android-apks
         path: |
-          **/*.apk
-          !**/unaligned.apk
+          app/build/outputs/apk/**/*.apk
+          android/app/build/outputs/apk/**/*.apk
+          build/outputs/apk/**/*.apk
+          bin/*.apk
+          out/*.apk
+          target/*.apk
+          */build/outputs/apk/**/*.apk
+          **/bin/*.apk
         retention-days: 30
         
-    - name: Show build results
+    - name: Upload any APK files found anywhere
+      uses: actions/upload-artifact@v4
       if: always()
-      run: |
-        echo "=== Build Results ==="
-        find . -name "*.apk" -type f 2>/dev/null || echo "No APK files found"
-        echo ""
-        echo "=== Output directories ==="
-        find . -type d -name "outputs" 2>/dev/null || echo "No outputs directory found"
-        find . -type d -name "bin" 2>/dev/null || echo "No bin directory found"
+      continue-on-error: true
+      with:
+        name: all-apks-found
+        path: "**/*.apk"
+        retention-days: 30
