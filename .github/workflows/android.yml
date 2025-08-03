@@ -1,4 +1,4 @@
-name: Simple Legacy Android Build
+name: Direct Android SDK Build
 
 on:
   push:
@@ -9,27 +9,20 @@ on:
 
 jobs:
   build:
-    name: Build Legacy Android Project
+    name: Build with Android SDK Tools
     runs-on: ubuntu-latest
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       
-    - name: Project Info
+    - name: Project Analysis
       run: |
-        echo "=== Project Analysis ==="
-        echo "AndroidManifest.xml: $([ -f AndroidManifest.xml ] && echo "✓" || echo "✗")"
-        echo "project.properties: $([ -f project.properties ] && echo "✓" || echo "✗")"
-        echo "Source files: $(find src -name "*.java" 2>/dev/null | wc -l) Java files"
-        echo "Libraries: $(find libs -name "*.jar" 2>/dev/null | wc -l) JAR files"
-        
-        if [ -f AndroidManifest.xml ]; then
-          echo ""
-          echo "=== App Info ==="
-          grep -o 'package="[^"]*"' AndroidManifest.xml || echo "Package not found"
-          grep -o 'android:versionName="[^"]*"' AndroidManifest.xml || echo "Version not found"
-        fi
+        echo "=== Legacy Android Project ==="
+        echo "Package: $(grep -o 'package="[^"]*"' AndroidManifest.xml | cut -d'"' -f2)"
+        echo "Java files: $(find src -name "*.java" 2>/dev/null | wc -l)"
+        echo "JAR libraries: $(find libs -name "*.jar" 2>/dev/null | wc -l)"
+        echo "Resources: $(find res -type f 2>/dev/null | wc -l)"
         
     - name: Set up JDK 17
       uses: actions/setup-java@v4
@@ -37,229 +30,193 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
         
-    - name: Download and setup Android SDK
+    - name: Setup minimal Android SDK
       run: |
-        # Download Android SDK
+        # Create Android SDK directory
+        export ANDROID_HOME=$HOME/android-sdk
+        mkdir -p $ANDROID_HOME
+        
+        # Download minimal SDK
         cd /tmp
         wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
         unzip -q commandlinetools-linux-9477386_latest.zip
-        
-        # Setup SDK
-        export ANDROID_HOME=$HOME/android-sdk
+        mv cmdline-tools $ANDROID_HOME/cmdline-tools-temp
         mkdir -p $ANDROID_HOME/cmdline-tools
-        mv cmdline-tools $ANDROID_HOME/cmdline-tools/latest
+        mv $ANDROID_HOME/cmdline-tools-temp $ANDROID_HOME/cmdline-tools/latest
         
-        # Install components
+        # Install required packages
         export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
         yes | sdkmanager --licenses >/dev/null 2>&1
         sdkmanager "platform-tools" "build-tools;30.0.3" "platforms;android-28" >/dev/null
         
-        # Set environment
+        # Set environment for next steps
         echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
         echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
         echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
         echo "$ANDROID_HOME/build-tools/30.0.3" >> $GITHUB_PATH
         
-        echo "Android SDK setup complete"
+        # Verify installation
+        echo "SDK installed. Build tools version:"
+        ls $ANDROID_HOME/build-tools/
         
-    - name: Create modern Gradle build
+    - name: Prepare build directories
       run: |
-        echo "Creating modern Gradle build for legacy project..."
+        mkdir -p build/classes
+        mkdir -p build/gen
+        mkdir -p build/res
+        echo "Build directories created"
         
-        # Create settings.gradle
-        echo "rootProject.name = 'ApkDownloader'" > settings.gradle
-        
-        # Create basic build.gradle
-        cat > build.gradle << 'EOF'
-        plugins {
-          id 'com.android.application' version '8.1.0'
-        }
-
-        android {
-          namespace 'com.jackpf.apkdownloader'
-          compileSdk 28
-    
-        defaultConfig {
-        applicationId "com.jackpf.apkdownloader"
-        minSdk 14
-        targetSdk 28
-        versionCode 1
-        versionName "1.0"
-        }
-    
-        buildTypes {
-        debug {
-            debuggable true
-        }
-        release {
-            minifyEnabled false
-        }
-        }
-    
-        compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
-        }
-    
-        sourceSets {
-        main {
-            manifest.srcFile 'AndroidManifest.xml'
-            java.srcDirs = ['src']
-            resources.srcDirs = ['src']
-            res.srcDirs = ['res']
-            assets.srcDirs = ['assets']
-        }
-        }
-        }
-
-        dependencies {
-          implementation fileTree(dir: 'libs', include: ['*.jar'])
-        }
-        EOF
-
-        # Create gradle wrapper
-        cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
-        distributionBase=GRADLE_USER_HOME
-        distributionPath=wrapper/dists
-        distributionUrl=https\://services.gradle.org/distributions/gradle-8.0-bin.zip
-        zipStoreBase=GRADLE_USER_HOME
-        zipStorePath=wrapper/dists
-        EOF
-
-        mkdir -p gradle/wrapper
-        echo "Gradle build files created"
-        
-    - name: Install Gradle
+    - name: Generate R.java
       run: |
-        cd /tmp
-        wget -q https://services.gradle.org/distributions/gradle-8.0-bin.zip
-        unzip -q gradle-8.0-bin.zip
-        export GRADLE_HOME=/tmp/gradle-8.0
-        export PATH=$PATH:$GRADLE_HOME/bin
-        echo "$GRADLE_HOME/bin" >> $GITHUB_PATH
-        gradle --version
+        echo "Generating R.java with aapt..."
         
-    - name: Fix AndroidManifest for modern build
-      run: |
-        if [ -f AndroidManifest.xml ]; then
-          # Backup original
-          cp AndroidManifest.xml AndroidManifest.xml.original
-          
-          # Add namespace if missing (required for modern builds)
-          if ! grep -q "xmlns:android" AndroidManifest.xml; then
-            sed -i '1s/<manifest/<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android"/' AndroidManifest.xml
-          fi
-          
-          echo "AndroidManifest.xml updated for modern build"
-        fi
-        
-    - name: Create local.properties
-      run: |
-        echo "sdk.dir=$ANDROID_HOME" > local.properties
-        echo "Local properties created"
-        
-    - name: Build with Gradle
-      run: |
-        echo "Building APK with Gradle..."
-        gradle assembleDebug --stacktrace --info || echo "Gradle build failed, trying alternatives..."
-        
-    - name: Alternative build with direct SDK tools
-      if: always()
-      run: |
-        echo "=== Alternative build method ==="
-        mkdir -p build/classes build/gen
-        
-        # Generate R.java
-        echo "Generating R.java..."
-        aapt package -f -m \
+        # Generate R.java file
+        $ANDROID_HOME/build-tools/30.0.3/aapt package \
+          --auto-add-overlay \
+          -f \
+          -m \
           -J build/gen \
           -S res \
           -M AndroidManifest.xml \
-          -I $ANDROID_HOME/platforms/android-28/android.jar || echo "R.java generation failed"
-        
-        # Compile Java sources
-        if [ -d src ] || [ -d build/gen ]; then
-          echo "Compiling Java sources..."
-          find src build/gen -name "*.java" > sources.list 2>/dev/null || touch sources.list
+          -I $ANDROID_HOME/platforms/android-28/android.jar \
+          --debug-mode || echo "R.java generation failed, continuing..."
           
-          if [ -s sources.list ]; then
-            # Build classpath
-            CLASSPATH="$ANDROID_HOME/platforms/android-28/android.jar"
-            if [ -d libs ]; then
-              for jar in libs/*.jar; do
-                [ -f "$jar" ] && CLASSPATH="$CLASSPATH:$jar"
-              done
-            fi
-            
-            javac -d build/classes -cp "$CLASSPATH" @sources.list || echo "Java compilation failed"
+        echo "Generated files in build/gen:"
+        find build/gen -name "*.java" 2>/dev/null || echo "No R.java files generated"
+        
+    - name: Compile Java sources
+      run: |
+        echo "Compiling Java sources..."
+        
+        # Create sources list
+        find src -name "*.java" > build/sources.txt 2>/dev/null || touch build/sources.txt
+        find build/gen -name "*.java" >> build/sources.txt 2>/dev/null || true
+        
+        if [ -s build/sources.txt ]; then
+          echo "Found $(wc -l < build/sources.txt) Java files to compile"
+          
+          # Build classpath
+          CLASSPATH="$ANDROID_HOME/platforms/android-28/android.jar"
+          
+          # Add JAR libraries
+          if [ -d libs ]; then
+            for jar in libs/*.jar; do
+              if [ -f "$jar" ]; then
+                CLASSPATH="$CLASSPATH:$jar"
+                echo "Added to classpath: $jar"
+              fi
+            done
           fi
-        fi
-        
-        # Create DEX
-        if [ -d build/classes ] && [ "$(ls -A build/classes 2>/dev/null)" ]; then
-          echo "Creating DEX..."
-          dx --dex --output=build/classes.dex build/classes || echo "DEX creation failed"
-        fi
-        
-        # Package APK
-        if [ -f build/classes.dex ]; then
-          echo "Packaging APK..."
-          aapt package -f \
-            -M AndroidManifest.xml \
-            -S res \
-            -I $ANDROID_HOME/platforms/android-28/android.jar \
-            -F build/app-debug.apk \
-            build || echo "APK packaging failed"
+          
+          # Compile with explicit options
+          javac \
+            -d build/classes \
+            -cp "$CLASSPATH" \
+            -sourcepath src:build/gen \
+            -target 1.8 \
+            -source 1.8 \
+            @build/sources.txt || echo "Compilation failed, continuing..."
             
-          # Add DEX to APK
-          if [ -f build/app-debug.apk ]; then
-            aapt add build/app-debug.apk build/classes.dex || echo "Adding DEX failed"
-            echo "APK created: build/app-debug.apk"
-          fi
+          echo "Compiled classes:"
+          find build/classes -name "*.class" | wc -l
+        else
+          echo "No Java source files found"
         fi
         
-    - name: Find and display APKs
+    - name: Create DEX file
+      run: |
+        if [ -d build/classes ] && [ "$(find build/classes -name "*.class" | head -1)" ]; then
+          echo "Creating DEX file..."
+          
+          $ANDROID_HOME/build-tools/30.0.3/dx \
+            --dex \
+            --output=build/classes.dex \
+            build/classes || echo "DEX creation failed"
+            
+          if [ -f build/classes.dex ]; then
+            echo "DEX file created: $(ls -lh build/classes.dex | awk '{print $5}')"
+          fi
+        else
+          echo "No compiled classes found, skipping DEX creation"
+        fi
+        
+    - name: Package APK
+      run: |
+        echo "Packaging APK..."
+        
+        # Package resources and manifest
+        $ANDROID_HOME/build-tools/30.0.3/aapt package \
+          -f \
+          -M AndroidManifest.xml \
+          -S res \
+          -I $ANDROID_HOME/platforms/android-28/android.jar \
+          -F build/app-unsigned.apk \
+          --debug-mode || echo "Initial APK packaging failed"
+          
+        # Add DEX file if it exists
+        if [ -f build/classes.dex ] && [ -f build/app-unsigned.apk ]; then
+          echo "Adding DEX to APK..."
+          $ANDROID_HOME/build-tools/30.0.3/aapt add build/app-unsigned.apk build/classes.dex || echo "Adding DEX failed"
+        fi
+        
+        # Add native libraries if they exist
+        if [ -d libs ]; then
+          for so_file in $(find libs -name "*.so" 2>/dev/null); do
+            echo "Adding native library: $so_file"
+            $ANDROID_HOME/build-tools/30.0.3/aapt add build/app-unsigned.apk "$so_file" || true
+          done
+        fi
+        
+        if [ -f build/app-unsigned.apk ]; then
+          echo "APK created successfully: $(ls -lh build/app-unsigned.apk | awk '{print $5}')"
+          
+          # Create debug version
+          cp build/app-unsigned.apk build/ApkDownloader-debug.apk
+          echo "Debug APK: build/ApkDownloader-debug.apk"
+        else
+          echo "APK creation failed"
+        fi
+        
+    - name: APK Information
       if: always()
       run: |
-        echo "=== APK Search Results ==="
-        find . -name "*.apk" -type f 2>/dev/null | while read apk; do
-          echo "Found: $apk ($(ls -lh "$apk" | awk '{print $5}'))"
-        done || echo "No APK files found"
+        echo "=== Build Results ==="
         
-        # Show build directories
-        echo ""
-        echo "=== Build Directories ==="
-        for dir in build app/build bin; do
-          if [ -d "$dir" ]; then
-            echo "$dir contents:"
-            find "$dir" -name "*.apk" -o -name "*.dex" | head -5
+        for apk in $(find build -name "*.apk" 2>/dev/null); do
+          echo "APK: $apk"
+          echo "Size: $(ls -lh "$apk" | awk '{print $5}')"
+          
+          # Try to get APK info
+          if command -v aapt >/dev/null 2>&1; then
+            echo "Package info:"
+            aapt dump badging "$apk" 2>/dev/null | head -3 || echo "Cannot read APK info"
           fi
+          echo "---"
         done
         
-    - name: Collect APKs
-      if: always()
-      run: |
-        mkdir -p artifacts
+        # List all build artifacts
+        echo "Build directory contents:"
+        find build -type f -name "*" | head -20
         
-        # Find and copy all APKs
-        find . -name "*.apk" -type f 2>/dev/null | while read apk; do
-          filename=$(basename "$apk")
-          cp "$apk" "artifacts/$filename"
-          echo "Collected: $filename"
-        done
-        
-        echo "Artifacts collected:"
-        ls -la artifacts/ 2>/dev/null || echo "No artifacts"
-        
-    - name: Upload APKs
+    - name: Upload APK
       uses: actions/upload-artifact@v4
       if: always()
       continue-on-error: true
       with:
-        name: legacy-android-apk
+        name: android-apk-direct-build
         path: |
-          artifacts/*.apk
           build/*.apk
-          app/build/outputs/apk/**/*.apk
-          bin/*.apk
         retention-days: 30
+        
+    - name: Upload build artifacts (debug)
+      uses: actions/upload-artifact@v4
+      if: failure()
+      continue-on-error: true
+      with:
+        name: build-debug-info
+        path: |
+          build/sources.txt
+          build/gen/
+          AndroidManifest.xml
+          project.properties
+        retention-days: 7
