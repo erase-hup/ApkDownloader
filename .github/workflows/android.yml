@@ -1,324 +1,129 @@
-name: Android CI/CD
+name: Debug Build Analysis
 
 on:
+  workflow_dispatch:  # Manuel tetikleme için
   push:
-    branches: [ main, master, develop ]
-  pull_request:
-    branches: [ main, master, develop ]
-  release:
-    types: [published]
+    branches: [ main, master ]
 
 jobs:
-  test:
-    name: Run Unit Tests
+  debug-build:
+    name: Debug Build Analysis
     runs-on: ubuntu-latest
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       
+    - name: Detailed project analysis
+      run: |
+        echo "=== Complete Project Structure ==="
+        find . -type f -name "*.gradle*" -o -name "*.xml" -o -name "*.properties" | head -20
+        echo ""
+        echo "=== Android specific files ==="
+        find . -name "AndroidManifest.xml" -o -name "strings.xml" -o -name "activity_*.xml"
+        echo ""
+        echo "=== Source directories ==="
+        find . -type d -name "src" -o -name "java" -o -name "kotlin"
+        echo ""
+        echo "=== Resource directories ==="
+        find . -type d -name "res" -o -name "assets" -o -name "drawable*"
+        
     - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
-        
-    - name: Cache Gradle packages
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.gradle/caches
-          ~/.gradle/wrapper
-        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-        restore-keys: |
-          ${{ runner.os }}-gradle-
-          
-    - name: Check project structure
-      run: |
-        echo "Current directory contents:"
-        ls -la
-        echo "Looking for build files..."
-        find . -name "*.gradle" -o -name "gradlew" -o -name "build.xml" -o -name "pom.xml" | head -10
-        
-    - name: Grant execute permission for gradlew (if exists)
-      run: |
-        if [ -f "./gradlew" ]; then
-          chmod +x gradlew
-        elif [ -f "./android/gradlew" ]; then
-          chmod +x android/gradlew
-        else
-          echo "No gradlew found, will use gradle directly"
-        fi
-      
-    - name: Run unit tests
-      run: |
-        if [ -f "./gradlew" ]; then
-          ./gradlew test --stacktrace
-        elif [ -f "./android/gradlew" ]; then
-          cd android && ./gradlew test --stacktrace
-        elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
-          gradle test --stacktrace
-        else
-          echo "No suitable build system found, skipping tests"
-        fi
-
-  build:
-    name: Build APK
-    runs-on: ubuntu-latest
-    needs: test
     
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v3
       
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-        
-    - name: Cache Gradle packages
+    - name: Cache Gradle
       uses: actions/cache@v4
       with:
         path: |
           ~/.gradle/caches
           ~/.gradle/wrapper
         key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-        restore-keys: |
-          ${{ runner.os }}-gradle-
-          
-    - name: Check project structure
-      run: |
-        echo "Current directory contents:"
-        ls -la
-        echo "Looking for build files..."
-        find . -name "*.gradle" -o -name "gradlew" -o -name "build.xml" -o -name "pom.xml" | head -10
         
-    - name: Grant execute permission for gradlew (if exists)
+    - name: Try all build methods
       run: |
+        echo "=== Attempting all possible build methods ==="
+        
+        # Method 1: Gradle Wrapper
         if [ -f "./gradlew" ]; then
+          echo "Trying ./gradlew"
           chmod +x gradlew
-        elif [ -f "./android/gradlew" ]; then
+          ./gradlew clean assembleDebug --info --stacktrace || echo "gradlew failed"
+        fi
+        
+        # Method 2: Gradle Wrapper in subdirectory
+        if [ -f "./android/gradlew" ]; then
+          echo "Trying android/gradlew"
           chmod +x android/gradlew
-        else
-          echo "No gradlew found, will use gradle directly"
+          cd android && ./gradlew clean assembleDebug --info --stacktrace || echo "android/gradlew failed"
+          cd ..
         fi
-      
-    - name: Build debug APK
-      run: |
-        if [ -f "./gradlew" ]; then
-          ./gradlew assembleDebug --stacktrace
-        elif [ -f "./android/gradlew" ]; then
-          cd android && ./gradlew assembleDebug --stacktrace
-        elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
-          gradle assembleDebug --stacktrace
-        else
-          echo "No suitable build system found"
-          echo "Trying alternative Android build methods..."
-          if [ -f "build.xml" ]; then
-            ant debug
-          else
-            echo "Unable to determine build system"
-            exit 1
-          fi
+        
+        # Method 3: System Gradle
+        if [ -f "build.gradle" ] && command -v gradle &> /dev/null; then
+          echo "Trying system gradle"
+          gradle clean assembleDebug --info --stacktrace || echo "system gradle failed"
         fi
-      
-    - name: Find and list APK files
+        
+        # Method 4: Ant
+        if [ -f "build.xml" ]; then
+          echo "Trying Ant"
+          ant clean debug || echo "ant failed"
+        fi
+        
+    - name: Comprehensive APK search
       if: always()
       run: |
-        echo "=== Searching for APK files ==="
+        echo "=== Comprehensive APK search ==="
+        echo "Current directory: $(pwd)"
+        echo ""
+        echo "All .apk files in the system:"
         find . -name "*.apk" -type f 2>/dev/null | while read apk; do
-          echo "Found: $apk ($(ls -lh "$apk" | awk '{print $5}'))"
-        done || echo "No APK files found"
+          echo "Found APK: $apk"
+          echo "  Size: $(ls -lh "$apk" | awk '{print $5}')"
+          echo "  Full path: $(readlink -f "$apk")"
+          echo "  Directory: $(dirname "$apk")"
+        done
+        echo ""
+        echo "Build output directories:"
+        find . -type d \( -name "build" -o -name "bin" -o -name "out" -o -name "target" -o -name "outputs" \) 2>/dev/null | while read dir; do
+          echo "Build dir: $dir"
+          ls -la "$dir" 2>/dev/null | head -10
+          echo "---"
+        done
         
-    - name: Upload debug APK
+    - name: Create artifact directory and copy APKs
+      if: always()
+      run: |
+        mkdir -p artifacts/apks
+        
+        # Find and copy all APK files
+        find . -name "*.apk" -type f 2>/dev/null | while read apk; do
+          filename=$(basename "$apk")
+          cp "$apk" "artifacts/apks/$filename" && echo "Copied: $filename"
+        done
+        
+        echo "Artifacts directory contents:"
+        ls -la artifacts/apks/ 2>/dev/null || echo "No APKs copied"
+        
+    - name: Upload all found APKs
       uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: found-apks
+        path: artifacts/apks/
+        retention-days: 30
+        
+    - name: Upload raw search results
+      uses: actions/upload-artifact@v4
+      if: always()
       continue-on-error: true
       with:
-        name: debug-apk
-        path: |
-          app/build/outputs/apk/debug/*.apk
-          android/app/build/outputs/apk/debug/*.apk
-          build/outputs/apk/debug/*.apk
-          bin/*debug*.apk
-          **/build/outputs/apk/debug/*.apk
-        retention-days: 30
-      if: always()
-
-  build-release:
-    name: Build Release APK
-    runs-on: ubuntu-latest
-    needs: test
-    if: github.event_name == 'release' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-        
-    - name: Cache Gradle packages
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.gradle/caches
-          ~/.gradle/wrapper
-        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-        restore-keys: |
-          ${{ runner.os }}-gradle-
-          
-    - name: Check project structure
-      run: |
-        echo "Current directory contents:"
-        ls -la
-        echo "Looking for build files..."
-        find . -name "*.gradle" -o -name "gradlew" -o -name "build.xml" -o -name "pom.xml" | head -10
-        
-    - name: Grant execute permission for gradlew (if exists)
-      run: |
-        if [ -f "./gradlew" ]; then
-          chmod +x gradlew
-        elif [ -f "./android/gradlew" ]; then
-          chmod +x android/gradlew
-        else
-          echo "No gradlew found, will use gradle directly"
-        fi
-        
-    # Release APK imzalama için keystore gerekli
-    - name: Decode Keystore
-      id: decode_keystore
-      if: env.KEYSTORE_BASE64 != ''
-      env:
-        KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-      run: |
-        echo $KEYSTORE_BASE64 | base64 -d > app/keystore.jks
-        
-    - name: Build release APK
-      env:
-        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-      run: |
-        if [ -f "./gradlew" ]; then
-          if [ -f "app/keystore.jks" ]; then
-            ./gradlew assembleRelease \
-              -Pandroid.injected.signing.store.file=app/keystore.jks \
-              -Pandroid.injected.signing.store.password=$KEYSTORE_PASSWORD \
-              -Pandroid.injected.signing.key.alias=$KEY_ALIAS \
-              -Pandroid.injected.signing.key.password=$KEY_PASSWORD \
-              --stacktrace
-          else
-            ./gradlew assembleRelease --stacktrace
-          fi
-        elif [ -f "./android/gradlew" ]; then
-          cd android
-          if [ -f "app/keystore.jks" ]; then
-            ./gradlew assembleRelease \
-              -Pandroid.injected.signing.store.file=app/keystore.jks \
-              -Pandroid.injected.signing.store.password=$KEYSTORE_PASSWORD \
-              -Pandroid.injected.signing.key.alias=$KEY_ALIAS \
-              -Pandroid.injected.signing.key.password=$KEY_PASSWORD \
-              --stacktrace
-          else
-            ./gradlew assembleRelease --stacktrace
-          fi
-        elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
-          gradle assembleRelease --stacktrace
-        elif [ -f "build.xml" ]; then
-          ant release
-        else
-          echo "Unable to determine build system"
-          exit 1
-        fi
-        
-    - name: Upload release APK
-      uses: actions/upload-artifact@v4
-      continue-on-error: true
-      with:
-        name: release-apk
-        path: |
-          app/build/outputs/apk/release/*.apk
-          android/app/build/outputs/apk/release/*.apk
-          build/outputs/apk/release/*.apk
-          bin/*release*.apk
-          **/build/outputs/apk/release/*.apk
-        retention-days: 90
-      if: always()
-        
-    - name: Upload to Release
-      if: github.event_name == 'release'
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: app/build/outputs/apk/release/app-release.apk
-        asset_name: ApkDownloader-${{ github.event.release.tag_name }}.apk
-        asset_content_type: application/vnd.android.package-archive
-
-  lint:
-    name: Run Lint Analysis
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-        
-    - name: Cache Gradle packages
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.gradle/caches
-          ~/.gradle/wrapper
-        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-        restore-keys: |
-          ${{ runner.os }}-gradle-
-          
-    - name: Check project structure
-      run: |
-        echo "Current directory contents:"
-        ls -la
-        echo "Looking for build files..."
-        find . -name "*.gradle" -o -name "gradlew" -o -name "build.xml" -o -name "pom.xml" | head -10
-        
-    - name: Grant execute permission for gradlew (if exists)
-      run: |
-        if [ -f "./gradlew" ]; then
-          chmod +x gradlew
-        elif [ -f "./android/gradlew" ]; then
-          chmod +x android/gradlew
-        else
-          echo "No gradlew found, will use gradle directly"
-        fi
-      
-    - name: Run lint
-      run: |
-        if [ -f "./gradlew" ]; then
-          ./gradlew lintDebug --stacktrace
-        elif [ -f "./android/gradlew" ]; then
-          cd android && ./gradlew lintDebug --stacktrace
-        elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
-          gradle lintDebug --stacktrace
-        else
-          echo "No suitable build system found, skipping lint"
-        fi
-      
-    - name: Upload lint results
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: lint-results
-        path: |
-          app/build/reports/lint-results-debug.html
-          android/app/build/reports/lint-results-debug.html
-        retention-days: 30
+        name: any-apks-anywhere
+        path: "**/*.apk"
+        retention-days: 7
