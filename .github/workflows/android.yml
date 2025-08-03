@@ -113,7 +113,7 @@ jobs:
           echo "R.java generation failed, creating comprehensive R.java..."
           
           # Create comprehensive R.java based on actual resources
-          cat > build/gen/com/jackpf/apkdownloader/R.java << 'RJAVA_EOF'
+          cat > build/gen/com/jackpf/apkdownloader/R.java <<'RJAVA_EOF'
             package com.jackpf.apkdownloader;
             
             public final class R {
