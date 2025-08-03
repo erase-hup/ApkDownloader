@@ -87,6 +87,26 @@ jobs:
         THEME_EOF
 
         echo "ActionBarSherlock theme resources created"
+    - name: Setup ActionBarSherlock
+      run: |
+        echo "Setting up ActionBarSherlock..."
+        # Ensure the ActionBarSherlock library is properly structured
+        if [ -d "libs/actionbarsherlock" ]; then
+          echo "Found ActionBarSherlock directory"
+          
+          # Copy the compiled R.java from ActionBarSherlock
+          mkdir -p build/gen/com/actionbarsherlock
+          cp -r libs/actionbarsherlock/gen/com/actionbarsherlock/* build/gen/com/actionbarsherlock/
+          
+          # Copy the library JAR if it exists
+          if ls libs/actionbarsherlock/libs/*.jar 1> /dev/null 2>&1; then
+            cp libs/actionbarsherlock/libs/*.jar libs/
+          fi
+          
+          echo "ActionBarSherlock R.java and JARs copied"
+        else
+          echo "ActionBarSherlock directory not found"
+        fi
         
     - name: Create build directories
       run: |
